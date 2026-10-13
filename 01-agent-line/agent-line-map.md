@@ -35,7 +35,7 @@ List every discrete decision or action in your agent's workflow, then score each
   - **M2 design gap:** the item 2 and item 5 checkpoints (sources used/excluded, risks considered but not flagged) are outputs Cortex must produce, not tools.
 - **Memory:**
   - **Persists (read-only reference):** past updates, decision log, roadmap, team norms.
-  - **Kept with the saved draft:** the item 2 sources used/excluded list, as a record of what Cortex relied on. Kept for the human, never fed back to Cortex.
+  - **Kept with the saved draft:** the item 2 sources used/excluded list and the item 5 risks considered but not flagged list, as a record of what Cortex relied on and what it chose not to raise. Kept for the human, never fed back to Cortex.
   - **Explicitly not remembered:**
     - rejected or unapproved drafts, so a claim already judged wrong can't come back as reference in a later run
     - anything from `.env`
@@ -49,18 +49,18 @@ List every discrete decision or action in your agent's workflow, then score each
 
 **Below the line**
 
-1. **Pull project state + activity:** It only reads data, so a bad pull changes nothing and is easy to check against the source.
-2. **Decide relevant context (HITL):** A missed source is invisible in the draft, so Cortex lists what it used and excluded before I trust the update.
-3. **Draft the update:** A draft is only words in a file, checked against the data before anything is sent.
-5. **Flag at-risk / escalation (HITL):** A false alarm costs me a minute but a missed flag hides a risk, so I review what Cortex chose not to flag.
-7. **Propose a story batch (HITL):** Bad stories could shape a sprint, so the cap limits how many and nothing enters the backlog without my approval.
+- **#1 Pull project state + activity:** It only reads data, so a bad pull changes nothing and is easy to check against the source.
+- **#2 Decide relevant context (HITL):** A missed source is invisible in the draft, so Cortex lists what it used and excluded before I trust the update.
+- **#3 Draft the update:** A draft is only words in a file, checked against the data before anything is sent.
+- **#5 Flag at-risk / escalation (HITL):** A false alarm costs me a minute but a missed flag hides a risk, so I review what Cortex chose not to flag.
+- **#7 Propose a story batch (HITL):** Bad stories could shape a sprint, so the cap limits how many and nothing enters the backlog without my approval.
 
 **Above the line**
 
-4. **Decide tone/commitment level:** A "green" status or a ship date is a promise in my name, and once someone reads it I can't take it back.
-6. **Choose what to escalate:** If Cortex decides a risk isn't worth raising, I never see it, and I can't measure a failure I can't see.
-8a. **Post a routine update:** A posted update can't be unsent, even to a small audience.
-8b. **Approve a company-wide update:** It can't be unsent, and it reaches everyone, including people who will act on it.
+- **#4 Decide tone/commitment level:** A "green" status or a ship date is a promise in my name, and once someone reads it I can't take it back.
+- **#6 Choose what to escalate:** If Cortex decides a risk isn't worth raising, I never see it, and I can't measure a failure I can't see.
+- **#8a Post a routine update:** A posted update can't be unsent, even to a small audience.
+- **#8b Approve a company-wide update:** It can't be unsent, and it reaches everyone, including people who will act on it.
 
 ## Hardest call
 
