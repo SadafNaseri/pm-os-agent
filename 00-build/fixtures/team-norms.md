@@ -16,8 +16,17 @@
   or company-wide update.
 
 ## Status update rules
-- Red / yellow / green calls must be **evidence-based**. Every metric, date, and
-  progress claim must trace to pulled activity. **Never invent numbers or progress.**
+- Status calls (**Green / Amber / Red**) must be **evidence-based**. Every metric, date,
+  and progress claim must trace to pulled activity. **Never invent numbers or progress.**
+  The status is **proposed**: the PM confirms it at review.
+- **Status rubric:**
+  - **Green:** status on track, no open Sev-1, no `launch_hold`. A normal-severity open
+    issue alone stays Green. Open issues are still listed in the risks section, so Green
+    never hides them.
+  - **Amber:** no Sev-1 or `launch_hold`, but an open issue or slip threatens an in-scope
+    milestone, or the project is at risk with a named, non-blocking risk.
+  - **Red:** an open Sev-1 or `launch_hold`, the project is blocked, or an in-scope
+    milestone date has been missed.
 - If a project has an **open Sev-1** or a **launch_hold** flag, do not report it green
   and do not imply the launch is on track, **escalate the go/no-go** to a human.
 - If an update would require an **unconfirmed date**, escalate the date question rather

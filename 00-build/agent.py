@@ -12,9 +12,9 @@ Usage (ask your coding agent to run these for you, or run them yourself):
     python agent.py missing-data   # the stuck/escalate case
     python agent.py jailbreak       # the prompt-injection refusal case
 
-Every run ends by showing the drafted status update in a FINAL STATUS UPDATE block
-(or LAST DRAFT, held, if a bound trips), and saves it to run-output/. That file is
-always a draft held for a human, it is never posted, there is no publish tool.
+Every run ends one of three ways, saved to run-output/ and never posted (there is no
+publish tool): a FINAL STATUS UPDATE draft, a HAND-OFF draft marked NOT COMPLETE with
+the items that need a human decision, or a short failure note when Cortex gives up.
 
 Requires OPENAI_API_KEY in your environment (see .env.example). Model and bounds
 are read from env so you can tune them, that tuning is your M5 deliverable.
@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -34,7 +35,7 @@ from openai import OpenAI
 
 import tools
 from critic import review
-from prompts import CORTEX_SYSTEM
+from prompts import CORTEX_SYSTEM, OPPOSITE_PAIRS
 
 try:  # load .env if python-dotenv is installed; harmless if it isn't
     from dotenv import load_dotenv
@@ -52,6 +53,11 @@ MAX_QUEUE_ITEMS = int(os.environ.get("CORTEX_MAX_QUEUE_ITEMS", "10"))
 # Rough $ per 1M tokens for your chosen model, set to match its pricing.
 PRICE_IN = float(os.environ.get("CORTEX_PRICE_IN_PER_M", "0.15"))
 PRICE_OUT = float(os.environ.get("CORTEX_PRICE_OUT_PER_M", "0.60"))
+# The critic runs on a stronger model than the drafter (M1 agent line map), costed at
+# its own price so the cost cap sees the real spend.
+CRITIC_MODEL = os.environ.get("CORTEX_CRITIC_MODEL", "gpt-4o")
+CRITIC_PRICE_IN = float(os.environ.get("CORTEX_CRITIC_PRICE_IN_PER_M", "2.50"))
+CRITIC_PRICE_OUT = float(os.environ.get("CORTEX_CRITIC_PRICE_OUT_PER_M", "10.00"))
 
 TOOL_SCHEMAS = [
     {"type": "function", "function": {
@@ -108,33 +114,128 @@ def banner(text: str) -> None:
     print(f"\n{'=' * 64}\n{text}\n{'=' * 64}")
 
 
-def emit_deliverable(which: str, draft: str, *, accepted: bool,
-                     reason: str, cost: float) -> None:
-    """Surface AND persist Cortex's drafted status update so it can't get lost in
-    the scroll-back. This is still a DRAFT held for human review, never a post,
-    there is no publish tool, and an escalated run is held on purpose.
+def _save(name: str, text: str) -> None:
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    out = OUTPUT_DIR / name
+    out.write_text(text, encoding="utf-8")
+    print(f"\nSaved -> {out.relative_to(Path(__file__).parent)}  (nothing was posted)")
 
-    Runs on every exit: an accepted pass prints the FINAL update; a bound trip or
-    escalation prints the LAST draft it managed to write plus why it was held.
-    """
-    banner("FINAL STATUS UPDATE (draft, validator-approved, NOT posted)" if accepted
-           else "LAST DRAFT (held, NOT posted, escalated to a human)")
-    if draft.strip():
-        print(draft.rstrip())
-    else:
-        print("(Cortex stopped before it produced a draft, nothing to show.)")
-    if not accepted:
-        print(f"\nWhy it was held: {reason}")
 
-    if draft.strip():
-        OUTPUT_DIR.mkdir(exist_ok=True)
-        out = OUTPUT_DIR / f"status-update-{which}.md"
-        state = "accepted by validator" if accepted else "HELD, escalated"
-        out.write_text(
-            f"<!-- Cortex draft, {state}; NOT posted. Run cost ~ ${cost:.4f}. -->\n"
-            f"<!-- {reason} -->\n\n{draft.rstrip()}\n", encoding="utf-8")
-        print(f"\nSaved draft -> {out.relative_to(Path(__file__).parent)}  "
-              f"(for your review, nothing was posted)")
+# Three kinds of outcome (loop-spec.md section 3). Nothing here posts or sends anything.
+#   emit_draft    success: a complete, critic-passed recap draft, held for the PM.
+#   emit_handoff  escalate: a draft with blocked items, clearly NOT COMPLETE.
+#   give_up       stuck: a short failure note. It is not a draft.
+# Only drafts and hand-offs (status-update-*.md) count as the week's draft. A failure
+# note or rejected draft never does, and Cortex never reads run-output/ as a source.
+
+def emit_draft(which: str, draft: str, cost: float) -> None:
+    banner("FINAL STATUS UPDATE (draft, validator-approved, NOT posted)")
+    print(draft.rstrip())
+    _save(f"status-update-{which}.md",
+          f"<!-- Cortex draft, accepted by validator; NOT posted. "
+          f"Run cost ~ ${cost:.4f}. -->\n\n{draft.rstrip()}\n")
+
+
+def emit_handoff(which: str, draft: str, blocked: list[str], cost: float) -> None:
+    items = blocked or ["Cortex could not draft this and escalated (see below)"]
+    banner(f"HAND-OFF, NOT COMPLETE: {len(items)} item(s) need your decision. "
+           f"Nothing posted. Run cost ≈ ${cost:.4f}")
+    for item in items:
+        print(f"  NEEDS YOUR DECISION: {item}")
+    print()
+    print(draft.rstrip())
+    top = "".join(f"**NOT COMPLETE, NEEDS YOUR DECISION:** {i}\n" for i in items)
+    _save(f"status-update-{which}.md",
+          f"{top}\n<!-- Cortex hand-off draft; NOT posted. Run cost ~ ${cost:.4f}. -->\n\n"
+          f"{draft.rstrip()}\n")
+
+
+def give_up(which: str, reason: str, last_draft: str, cost: float,
+            rerun_helps: bool = True) -> None:
+    """Stop and say why. A short failure note, not a draft. A rejected draft, if any, is
+    saved in its own clearly labelled file; it is never the week's draft.
+    rerun_helps=False is for a cause a rerun cannot fix (project not found)."""
+    banner(f"GAVE UP, short failure note (not a draft). Nothing posted. "
+           f"Run cost ≈ ${cost:.4f}")
+    advice = ("A rerun can try again." if rerun_helps else
+              "Check the project ID. A rerun won't help until it's corrected.")
+    note = (f"# Failure note: Cortex could not finish ({which})\n\n"
+            f"**Why:** {reason}\n\n"
+            f"No recap draft was produced. {advice} "
+            f"Nothing was posted or sent. Run cost ~ ${cost:.4f}.\n")
+    print(note)
+    _save(f"failure-note-{which}.md", note)
+    if last_draft.strip():
+        _save(f"rejected-draft-{which}.md",
+              "**REJECTED DRAFT, do not use or forward.**\n"
+              "Not the week's draft. Cortex never reads this file as a source.\n\n"
+              f"<!-- Rejected because: {reason} -->\n\n{last_draft.rstrip()}\n")
+
+
+# Tools that DO something (queue stories) rather than read a source. They are left out
+# of part 4's "Used" list; the queued stories already appear in part 6.
+ACTION_TOOLS = {"propose_stories"}
+
+# The six parts of "done" (loop-spec.md section 2). Checked in code, not only by the critic.
+SIX_PARTS = (  # (number, title, key word the heading must contain)
+    ("1", "Proposed status", "status"), ("2", "What got done", "done"),
+    ("3", "Risks and issues", "risks"), ("4", "Sources used and excluded", "sources"),
+    ("5", "Risks considered but not flagged", "considered"),
+    ("6", "Proposed stories", "stories"),
+)
+
+
+def _part_heading(num: str, keyword: str) -> re.Pattern:
+    """A heading line (starts with # or **) with the part number and its key word.
+    Tolerant of formatting slips (heading level, bold, separator, wording); a missing
+    section still has no matching heading line, so it still fails."""
+    return re.compile(
+        rf"^(?:#{{1,6}}\s*|\*\*\s*){num}\s*[.):\-]\s*[^\n]*?{keyword}[^\n]*$", re.M | re.I)
+
+
+def missing_parts(text: str) -> list[str]:
+    """Names of the six parts missing from a DONE draft. An ESCALATE note has no parts."""
+    if re.search(r"^\s*ESCALATE:", text, re.M):
+        return []
+    return [f"{n}. {t}" for n, t, k in SIX_PARTS if not _part_heading(n, k).search(text)]
+
+
+def blocked_items(text: str) -> list[str]:
+    """Items Cortex marked 'NEEDS YOUR DECISION: ...' (a hand-off draft)."""
+    return [m.strip() for m in re.findall(r"NEEDS YOUR DECISION:\s*(.+)", text)]
+
+
+def is_escalation(text: str) -> bool:
+    return bool(re.search(r"^\s*ESCALATE:", text, re.M))
+
+
+# Hand-off trigger (loop-spec.md section 3): the REQUEST asks for a date. A date the
+# draft volunteers is judged by the critic (regex on dates would also catch merge dates).
+DATE_ASK = re.compile(
+    r"\b(?:GA|launch|ship|release|go-live)\s+date\b|\bfirm\s+(?:launch\s+|ship\s+)?date\b",
+    re.I)
+
+
+def stuck_reason(prior: set[str], current: set[str]) -> str:
+    """Stuck (loop-spec.md section 3): opposite critic reasons, or the same reason back
+    after a revision. Compares fixed labels; OTHER and OK are not specific, so ignored."""
+    ignore = {"OTHER", "OK"}
+    cur, pri = current - ignore, prior - ignore
+    for a, b in OPPOSITE_PAIRS:
+        if (a in cur and b in cur) or (a in pri and b in cur) or (b in pri and a in cur):
+            return f"the critic asked for opposite changes ({a} and {b}); no revision can pass"
+    again = sorted(cur & pri)
+    if again:
+        return f"the same critic reason came back after a revision ({', '.join(again)})"
+    return ""
+
+
+def add_used_sources(text: str, calls: list[str]) -> str:
+    """Insert the 'Used' list under part 4 from the REAL tool calls, so it can't be wrong."""
+    used = "\n".join(f"- {c}" for c in calls) or "- (no tools were called)"
+    block = f"\n**Used (from the actual tool calls):**\n{used}\n"
+    return _part_heading("4", "sources").sub(
+        lambda m: m.group(0) + block, text, count=1)
 
 
 def run(which: str = "happy") -> None:
@@ -153,15 +254,16 @@ def run(which: str = "happy") -> None:
         {"role": "user", "content": f"PM task brief:\n\n{task['body']}"},
     ]
     source_log: list[str] = [task["body"]]
+    calls_made: list[str] = []  # real tool calls, used to write part 4's "Used" list
     revisions = 0
     last_draft = ""
+    prior_labels: set[str] = set()  # critic labels from earlier rejections this run
+    date_asked = bool(DATE_ASK.search(task["body"]))
 
     for step in range(1, MAX_ITERATIONS + 1):
         if bounds.over_cap():
-            reason = f"cost cap ${COST_CAP_USD} hit at ${bounds.cost:.4f}"
-            banner(f"BOUND TRIPPED, {reason}. Halting and escalating to a human.")
-            emit_deliverable(which, last_draft, accepted=False,
-                             reason=reason, cost=bounds.cost)
+            give_up(which, f"cost cap ${COST_CAP_USD} hit at ${bounds.cost:.4f}",
+                    last_draft, bounds.cost)
             return
 
         resp = client.chat.completions.create(
@@ -176,52 +278,83 @@ def run(which: str = "happy") -> None:
                 args = json.loads(call.function.arguments or "{}")
                 result = tools.TOOLS[fn](**args)
                 source_log.append(f"{fn}({args}) -> {json.dumps(result)}")
+                label = f"{fn}({', '.join(f'{k}={v}' for k, v in args.items())})"
+                if fn not in ACTION_TOOLS and label not in calls_made:
+                    calls_made.append(label)  # sources only; actions are not sources
                 print(f"\n[step {step}] TOOL {fn}({args})")
                 print(f"          -> {json.dumps(result)[:300]}")
                 messages.append({"role": "tool", "tool_call_id": call.id,
                                  "content": json.dumps(result)})
+                if isinstance(result, dict) and result.get("error") == "project_not_found":
+                    # Hard stop, enforced in code: never retry, never substitute another
+                    # project (the error lists other projects; Cortex must not pivot).
+                    give_up(which, f"project not found: {result.get('project_id') or args}",
+                            "", bounds.cost, rerun_helps=False)
+                    return
             continue
 
         # No tool calls => Cortex produced a proposed output. Validate it.
         proposed = msg.content or ""
+        missing = missing_parts(proposed)
+        if not missing:
+            proposed = add_used_sources(proposed, calls_made)
         last_draft = proposed
         print(f"\n[step {step}] PROPOSED OUTPUT:\n{proposed}")
 
-        banner("CRITIC, independent validation")
-        verdict = review(client, MODEL, proposed, "\n".join(source_log))
-        # Estimate critic spend too.
-        bounds.cost += (verdict["_usage"]["prompt"] * PRICE_IN
-                        + verdict["_usage"]["completion"] * PRICE_OUT) / 1_000_000
+        date_unmarked = (date_asked and not missing and not is_escalation(proposed)
+                         and not any("date" in b.lower() for b in blocked_items(proposed)))
+        if missing:
+            # Completeness check in code: "done" needs all six parts. No critic call.
+            banner("COMPLETENESS CHECK, code (no critic call)")
+            verdict = {"verdict": "fail", "reasons": [
+                {"label": "MISSING_PART", "detail": f"missing part(s): {', '.join(missing)}"}]}
+        elif date_unmarked:
+            # The request asks for a date: Cortex must hand that item off, not answer it.
+            banner("DATE CHECK, code (no critic call)")
+            verdict = {"verdict": "fail", "reasons": [
+                {"label": "NORMS_VIOLATION", "detail": "the request asks for a date; "
+                 "mark it 'NEEDS YOUR DECISION: <date>' and leave the date out"}]}
+        else:
+            banner("CRITIC, independent validation")
+            verdict = review(client, CRITIC_MODEL, proposed, "\n".join(source_log))
+            # Estimate critic spend too, at the critic model's own price.
+            bounds.cost += (verdict["_usage"]["prompt"] * CRITIC_PRICE_IN
+                            + verdict["_usage"]["completion"] * CRITIC_PRICE_OUT) / 1_000_000
         print(json.dumps({k: v for k, v in verdict.items() if k != "_usage"}, indent=2))
 
         if verdict["verdict"] == "pass":
-            banner(f"HITL CHECKPOINT, status update + any proposed stories queued for "
-                   f"your review. Nothing posted, no commitments made. "
-                   f"Run cost ≈ ${bounds.cost:.4f}")
-            emit_deliverable(which, proposed, accepted=True,
-                             reason="validator passed", cost=bounds.cost)
+            blocked = blocked_items(proposed)
+            if blocked or is_escalation(proposed):
+                emit_handoff(which, proposed, blocked, bounds.cost)
+            else:
+                banner(f"HITL CHECKPOINT, status update + any proposed stories queued for "
+                       f"your review. Nothing posted, no commitments made. "
+                       f"Run cost ≈ ${bounds.cost:.4f}")
+                emit_draft(which, proposed, bounds.cost)
+            return
+
+        # Stuck check, before the revision cap: stop early and say why.
+        labels = {r["label"] for r in verdict["reasons"]}
+        stuck = stuck_reason(prior_labels, labels)
+        prior_labels |= labels
+        if stuck:
+            give_up(which, f"stuck: {stuck}", last_draft, bounds.cost)
             return
 
         if revisions >= MAX_REVISIONS:
-            reason = f"validator rejected {MAX_REVISIONS}x (revision cap)"
-            banner(f"REVISION CAP hit ({MAX_REVISIONS}). Escalating to a human "
-                   f"instead of looping. Run cost ≈ ${bounds.cost:.4f}")
-            emit_deliverable(which, last_draft, accepted=False,
-                             reason=reason, cost=bounds.cost)
+            give_up(which, f"revision limit: rejected {MAX_REVISIONS + 1}x "
+                    f"({MAX_REVISIONS} revisions used)", last_draft, bounds.cost)
             return
 
         revisions += 1
-        print(f"\n-> critic rejected; revision {revisions}/{MAX_REVISIONS}")
+        print(f"\n-> rejected; revision {revisions}/{MAX_REVISIONS}")
         messages.append(msg)
         messages.append({"role": "user", "content":
                          "A validator rejected that for these reasons: "
-                         f"{verdict['reasons']}. Fix it or escalate."})
+                         + "; ".join(f"{r['label']}: {r['detail']}" for r in verdict["reasons"])
+                         + ". Fix it."})
 
-    banner(f"MAX ITERATIONS ({MAX_ITERATIONS}) reached without finishing. "
-           f"Escalating. Run cost ≈ ${bounds.cost:.4f}")
-    emit_deliverable(which, last_draft, accepted=False,
-                     reason=f"max iterations ({MAX_ITERATIONS}) reached",
-                     cost=bounds.cost)
+    give_up(which, f"max iterations ({MAX_ITERATIONS}) reached", last_draft, bounds.cost)
 
 
 if __name__ == "__main__":
