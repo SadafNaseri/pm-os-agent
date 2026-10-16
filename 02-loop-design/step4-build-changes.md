@@ -40,3 +40,15 @@ Added at the start of Step 4:
   - Batch 1: items 3, 4, 12 (status wording and norms). Item 4: show old and new norms side by side before changing. The fix makes the rules consistent; it must not make the critic easier to pass.
   - Batch 2: items 1, 2, 5, 15 (the six parts and the completeness check).
   - Batch 3: items 6, 8, 9, 11, 14 (stuck, hard stop, hand-off and the failure note).
+
+## M5 eval cases (known critic misses, not fixing now)
+Both were seen in the Step 4 rerun of the happy path (run 1 reached success: critic passed, HITL checkpoint, cost $0.0075). Keep them as test cases for `05-bounds-evals/bounds-and-evals.md`.
+
+1. **Critic passed Amber where the rubric says Green.**
+   - Setup: P-NORTH happy path. Only a normal-severity open issue (#818), no Sev-1, no `launch_hold`, no threatened milestone.
+   - Expected: the status is Green (open issue listed in the risks section), or the critic rejects Amber as `STATUS_TOO_LOW`.
+   - Observed: the critic passed Amber.
+2. **Critic passed "Excluded: None".**
+   - Setup: same run. `CORTEX_SYSTEM` says "Excluded: None" is not acceptable and part 4 must name what was pulled but left out, with a reason.
+   - Expected: the critic rejects it (`MISSING_CONTENT`).
+   - Observed: the critic passed it.

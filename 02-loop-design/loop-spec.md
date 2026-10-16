@@ -48,8 +48,8 @@
 | Condition | What it looks like | What happens |
 |---|---|---|
 | **Success** | All six parts are present and the critic has passed the draft. | The draft is saved for my review. Nothing goes to anyone else. |
-| **Stuck / give up** | Any of these:<br>• Last week's data can't be pulled after 3 tries (temporary failures only).<br>• The project isn't found. This is a hard stop with no retries, and Cortex never substitutes another project.<br>• The critic's rejections ask for opposite changes, or the same reason comes back after a revision.<br>• 2 revisions are used up, or the $0.50 cost cap is hit. | Cortex stops and sends me a short failure note saying it couldn't finish and why. A failure note does not count as the week's draft, so a rerun can try again. |
-| **Escalate to human** | Any of these:<br>• The draft or the request would commit to a date.<br>• Any open Sev-1 or launch hold.<br>• More than 10 proposed stories.<br>• The notes contain instructions to post or share something. | Cortex holds the draft with each blocked item clearly marked, such as "needs your decision: GA date". It leaves out the part it can't decide instead of guessing. A draft with a blocked part must never look complete when I skim it. Lower risks still appear in part 5 of every draft. |
+| **Stuck / give up** | Any of these:<br>• Last week's data can't be pulled after 3 tries (temporary failures only). *(Planned, not built yet: the sample files can't fail temporarily, so this needs a live connector to test.)*<br>• The project isn't found. This is a hard stop with no retries, and Cortex never substitutes another project.<br>• The critic's rejections ask for opposite changes, or the same reason comes back after a revision.<br>• 2 revisions are used up, or the $0.50 cost cap is hit. | Cortex stops and sends me a short failure note saying it couldn't finish and why. A failure note does not count as the week's draft, so a rerun can try again. |
+| **Escalate to human** | Any of these:<br>• The draft or the request would commit to a date (built, not yet tested by a run; a test scenario is planned for M5).<br>• Any open Sev-1 or launch hold. *(Planned, not built yet: today only the team norms and Cortex's prompt cover it, with no code check or test run.)*<br>• More than 10 proposed stories.<br>• The notes contain instructions to post or share something. | Cortex holds the draft with each blocked item clearly marked, such as "needs your decision: GA date". It leaves out the part it can't decide instead of guessing. A draft with a blocked part must never look complete when I skim it. Lower risks still appear in part 5 of every draft. |
 
 **Status is proposed, not final.** Every draft waits for my review and nothing is sent, so I own the status decision at review time. Cortex labels the status "proposed" and I confirm it.
 
@@ -84,4 +84,9 @@ _`state` is always-on. `connectors` only if you already have one wired (e.g. a J
 
 ## Link to live loop
 
-_[path to your agent in `00-build/`]_
+The live loop is [`00-build/agent.py`](../00-build/agent.py). Today I run it by hand: `python3 agent.py` for the happy path and `python3 agent.py missing-data` for the give-up case.
+
+- **Prompts and rules:** [`00-build/prompts.py`](../00-build/prompts.py) and [`00-build/fixtures/team-norms.md`](../00-build/fixtures/team-norms.md)
+- **Critic:** [`00-build/critic.py`](../00-build/critic.py)
+- **Forced stuck test:** [`00-build/forced_stuck_test.py`](../00-build/forced_stuck_test.py) (`opposite` and `repeat`)
+- **Build changes made to match this spec:** [`step4-build-changes.md`](step4-build-changes.md)
