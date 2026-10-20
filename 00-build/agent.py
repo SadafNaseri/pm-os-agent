@@ -216,15 +216,28 @@ DATE_ASK = re.compile(
     re.I)
 
 
-def stuck_reason(prior: set[str], current: set[str]) -> str:
-    """Stuck (loop-spec.md section 3): opposite critic reasons, or the same reason back
-    after a revision. Compares fixed labels; OTHER and OK are not specific, so ignored."""
+def _same_item(x: str, y: str) -> bool:
+    """Two reasons point at the same item. If either has no item, assume they might (the
+    old behaviour), so a critic that skips "item" can still be caught as stuck."""
+    return not x or not y or x == y
+
+
+def stuck_reason(prior: set[tuple[str, str]], current: set[tuple[str, str]]) -> str:
+    """Stuck (loop-spec.md section 3): opposite critic reasons about the SAME item, or
+    the same reason back after a revision. Reasons are (label, item) pairs; OTHER and OK
+    are not specific, so ignored."""
     ignore = {"OTHER", "OK"}
-    cur, pri = current - ignore, prior - ignore
+    cur = {r for r in current if r[0] not in ignore}
+    pri = {r for r in prior if r[0] not in ignore}
+
+    def opposed(xs, ys, a, b):
+        return any(l1 == a and l2 == b and _same_item(i1, i2)
+                   for l1, i1 in xs for l2, i2 in ys)
+
     for a, b in OPPOSITE_PAIRS:
-        if (a in cur and b in cur) or (a in pri and b in cur) or (b in pri and a in cur):
+        if opposed(cur, cur, a, b) or opposed(pri, cur, a, b) or opposed(pri, cur, b, a):
             return f"the critic asked for opposite changes ({a} and {b}); no revision can pass"
-    again = sorted(cur & pri)
+    again = sorted({l for l, _ in cur} & {l for l, _ in pri})
     if again:
         return f"the same critic reason came back after a revision ({', '.join(again)})"
     return ""
@@ -257,7 +270,7 @@ def run(which: str = "happy") -> None:
     calls_made: list[str] = []  # real tool calls, used to write part 4's "Used" list
     revisions = 0
     last_draft = ""
-    prior_labels: set[str] = set()  # critic labels from earlier rejections this run
+    prior_labels: set[tuple[str, str]] = set()  # (label, item) from earlier rejections
     date_asked = bool(DATE_ASK.search(task["body"]))
 
     for step in range(1, MAX_ITERATIONS + 1):
@@ -316,7 +329,9 @@ def run(which: str = "happy") -> None:
                  "mark it 'NEEDS YOUR DECISION: <date>' and leave the date out"}]}
         else:
             banner("CRITIC, independent validation")
-            verdict = review(client, CRITIC_MODEL, proposed, "\n".join(source_log))
+            # The norms come from code, so the rubric never depends on what Cortex pulled.
+            verdict = review(client, CRITIC_MODEL, proposed, "\n".join(source_log),
+                             norms=tools.get_norms()["norms"])
             # Estimate critic spend too, at the critic model's own price.
             bounds.cost += (verdict["_usage"]["prompt"] * CRITIC_PRICE_IN
                             + verdict["_usage"]["completion"] * CRITIC_PRICE_OUT) / 1_000_000
@@ -334,7 +349,7 @@ def run(which: str = "happy") -> None:
             return
 
         # Stuck check, before the revision cap: stop early and say why.
-        labels = {r["label"] for r in verdict["reasons"]}
+        labels = {(r["label"], r.get("item", "")) for r in verdict["reasons"]}
         stuck = stuck_reason(prior_labels, labels)
         prior_labels |= labels
         if stuck:

@@ -22,7 +22,7 @@ Real screenshots of *your* Cortex running. These are the `00-build/CORTEX-ANATOM
 | # | Screenshot | What it shows | From |
 |---|---|---|---|
 | 1 | ![Critic pass and HITL checkpoint](screenshots/m2-run1-happy-critic-pass-checkpoint.png) | happy-path run: a real drafted update + the HITL checkpoint (queued, not posted) | M2 |
-| 2 | _[img]_ | the critic rejecting a bad draft (revise/block) | M3 |
+| 2 | ![Critic rejects tampered draft](screenshots/m3-critic-rejects-tampered-draft.png) | the critic rejecting a bad draft (revise/block)<br>*Injected fault: the draft was edited before the critic (41% → 47%, plus an invented WAU/NPS line). The real critic rejected it with UNSUPPORTED_CONTENT; Cortex revised; the critic passed. This capture predates the item 20 fix, so the status reason still shows the old STATUS_TOO_HIGH mislabel.* | M3 |
 | 3 | _[img]_ | a grounded update citing pulled activity + a caught hallucination | M4 |
 | 4 | _[img]_ | jailbreak refused + escalated | M5 |
 | 5 | _[img]_ | an iteration/cost/queue bound halting a runaway | M5 |
@@ -60,6 +60,43 @@ Real runs of Cortex against the M2 loop spec (`02-loop-design/loop-spec.md`), gr
 
 ![Forced test, stuck check fires](screenshots/m2-forced-stuck-repeat-fired.png)
 *Forced test: the same reason (UNSUPPORTED_CONTENT) returns after a revision, so Cortex gives up as stuck.*
+
+## M3 evidence (the critic, orchestration and its misses)
+
+Real runs against the M3 critic (`03-orchestration/orchestration-map.md`). Row 2 of the table above is the required rejection capture. Misses are logged as M5 eval cases in `02-loop-design/step4-build-changes.md`.
+
+### Forced test, tampered draft (injected fault)
+
+![Tamper test, Cortex draft](screenshots/m3-tamper-draft.png)
+*Real Cortex draft on the happy path, before the fault is injected (proposed Amber, activation rate 41%).*
+
+![Tamper test, revision passes](screenshots/m3-tamper-revision-pass.png)
+*After the rejection shown in row 2, Cortex's revision (Green, generic confidential entry) passes the critic and is saved. Run cost ≈ $0.0223.*
+
+### Missing data, first run (before items 18 to 20)
+
+![First invented-metric draft](screenshots/m3-invented-metric-draft.png)
+*`invented-metric`: Cortex does not invent the numbers. It says NPS is "not available" and names Orbit in the Excluded list.*
+
+![Critic rejects, demands the metrics](screenshots/m3-invented-metric-critic-reject.png)
+*The critic rejects Amber (STATUS_TOO_LOW) and demands the missing weekly active users and NPS (MISSING_CONTENT); Cortex's revision then writes "X% (exact number needed)".*
+
+![Give-up as stuck](screenshots/m3-invented-metric-giveup.png)
+*The critic repeats MISSING_CONTENT, so Cortex gives up as stuck with a short failure note. Run cost ≈ $0.0235.*
+
+### Missing data, after the fixes
+
+![Hand-off after items 18 and 19](screenshots/m3-invented-metric-handoff.png)
+*The critic asks for a NEEDS YOUR DECISION marker instead of a number, Cortex revises, and the run ends as a hand-off (≈ $0.0232). It also shows Amber labelled STATUS_TOO_HIGH and "Excluded: None" passing, both logged as M5 cases.*
+
+![Code corrects the status label](screenshots/m3-item20-label-corrected.png)
+*Item 20 in code: the critic labelled Amber as STATUS_TOO_HIGH and the code corrected it to STATUS_TOO_LOW (rubric Green, proposed Amber).*
+
+![Critic catches a fabricated NPS](screenshots/m3-critic-catches-fabricated-nps.png)
+*Critic caught a real fabrication (NPS 72) that an earlier critic demand caused.*
+
+![Final hand-off, with misses](screenshots/m3-invented-metric-handoff-final.png)
+*Final hand-off (≈ $0.0381): only NPS is flagged (weekly active users silently dropped), and the Excluded list names Vega and Orbit. Evidence for M5 cases 3 and 5.*
 
 ## How to run it
 

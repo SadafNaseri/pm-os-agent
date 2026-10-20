@@ -27,7 +27,7 @@ CASES = {
 def scripted_critic(script):
     calls = {"n": 0}
 
-    def fake_review(client, model, proposed_output, source_data):
+    def fake_review(client, model, proposed_output, source_data, norms=""):
         labels = script[min(calls["n"], len(script) - 1)]
         calls["n"] += 1
         return {"verdict": "fail",
