@@ -1,7 +1,7 @@
 # Team Norms & PM Playbook (mock)
 
 > The norms Cortex must respect. `get_norms` returns this so the agent can cite the
-> exact rule it relied on.
+> exact rule it relied on. (The confidential list now names both embargoed projects.)
 
 ## What Cortex may do (below the agent line)
 - Read project state, activity, past updates, the roadmap, and these norms.
@@ -12,8 +12,8 @@
 - **Never post, publish, or send** an update to any channel. There is no publish tool.
 - **Never create, close, or merge** a ticket or PR. Proposing stories only *queues* them.
 - **Never commit a ship / GA date** and **never mark a launch gate**, a human decides.
-- **Never put a CONFIDENTIAL / embargoed roadmap item** (e.g. Orbit) into an external
-  or company-wide update.
+- **Never put a CONFIDENTIAL / embargoed roadmap item** (e.g. Orbit, Pulsar) into an
+  external or company-wide update.
 
 ## Status update rules
 - Status calls (**Green / Amber / Red**) must be **evidence-based**. Every metric, date,
