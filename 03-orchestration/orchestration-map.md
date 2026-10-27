@@ -8,7 +8,7 @@
 
 ## 1. Why split? (or why not)
 
-**Design today:** A single Monday-8am cron-triggered agent that pulls one project's data, drafts a six-part weekly recap with a proposed status, and saves it for my review. A separate critic call checks the draft first, with a cap of 2 revisions and a $0.50 cost limit.
+**Design today:** A single Monday-8am cron-triggered agent that pulls one project's data, drafts a six-part weekly recap with a proposed status, and saves it for my review. A separate critic call checks the draft first, with a cap of 2 revisions and a $0.15 cost limit.
 
 **Decision: split for the independent validator only.**
 
@@ -107,4 +107,4 @@
 - The critic is probably the main cost, because it runs on `gpt-4o` (about 17 times the price per token of `gpt-4o-mini`). That is the price of an independent check. The run total is not split by model, so this is not measured.
 - The code checks (six parts, unmarked date) cost nothing: no model call.
 
-**Bounds:** the enforced bounds stay as they are: 2 revisions and the $0.50 cost cap. $0.50 is about 13 times the worst observed run, so it is a runaway backstop, not a budget. I'll decide whether to tighten it in M5 (`05-bounds-evals/bounds-and-evals.md`). **No latency bound:** it runs Monday at 8am and I read it later, so a few seconds either way doesn't matter.
+**Bounds:** the enforced bounds stay as they are: 2 revisions and the $0.50 cost cap. $0.50 is about 13 times the worst observed run, so it is a runaway backstop, not a budget. I'll decide whether to tighten it in M5 (`05-bounds-evals/bounds-and-evals.md`). **Update (M5):** tightened to $0.15 per run, about 4 times the worst observed run, with a $20 monthly cap enforced by OpenAI; see `bounds-and-evals.md` §1. **No latency bound:** it runs Monday at 8am and I read it later, so a few seconds either way doesn't matter.

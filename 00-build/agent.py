@@ -4,8 +4,9 @@ directing your coding agent (Claude Code / Cursor / Codex) to shape this file. Y
 never have to hand-write it.
 
 Every bound the course talks about is visible right here in code, not buried in a
-framework: the max-iteration counter, the cost cap, the revision cap, the
-stop/escalate conditions, the auto-queue cap, and the absence of any publish tool.
+framework: the max-iteration counter, the cost cap, the revision cap, the run
+deadline and per-call timeout, the stop/escalate conditions, the auto-queue cap,
+and the absence of any publish tool.
 
 Usage (ask your coding agent to run these for you, or run them yourself):
     python agent.py                # runs the happy-path task (weekly status update)
@@ -29,9 +30,10 @@ import json
 import os
 import re
 import sys
+import time
 from pathlib import Path
 
-from openai import OpenAI
+from openai import APITimeoutError, OpenAI
 
 import tools
 from critic import review
@@ -48,8 +50,16 @@ except ImportError:
 MODEL = os.environ.get("CORTEX_MODEL", "gpt-4o-mini")
 MAX_ITERATIONS = int(os.environ.get("CORTEX_MAX_ITERATIONS", "8"))
 MAX_REVISIONS = int(os.environ.get("CORTEX_MAX_REVISIONS", "2"))
-COST_CAP_USD = float(os.environ.get("CORTEX_COST_CAP_USD", "0.50"))
+COST_CAP_USD = float(os.environ.get("CORTEX_COST_CAP_USD", "0.15"))
 MAX_QUEUE_ITEMS = int(os.environ.get("CORTEX_MAX_QUEUE_ITEMS", "10"))
+# Timeouts, in seconds. The loop checks the run deadline before each step. The
+# per-call timeout is set on the client, because a hung call never returns to the loop.
+RUN_DEADLINE_S = float(os.environ.get("CORTEX_RUN_DEADLINE_S", "120"))
+CALL_TIMEOUT_S = float(os.environ.get("CORTEX_CALL_TIMEOUT_S", "30"))
+CALL_RETRIES = int(os.environ.get("CORTEX_CALL_RETRIES", "1"))
+# Kill switch: if this file exists, the loop halts at its next step. Cortex has no
+# file-write tool and the code only writes to run-output/, so Cortex can't remove it.
+STOP_FILE = Path(__file__).parent / "STOP"
 # Rough $ per 1M tokens for your chosen model, set to match its pricing.
 PRICE_IN = float(os.environ.get("CORTEX_PRICE_IN_PER_M", "0.15"))
 PRICE_OUT = float(os.environ.get("CORTEX_PRICE_OUT_PER_M", "0.60"))
@@ -151,14 +161,15 @@ def emit_handoff(which: str, draft: str, blocked: list[str], cost: float) -> Non
 
 
 def give_up(which: str, reason: str, last_draft: str, cost: float,
-            rerun_helps: bool = True) -> None:
+            rerun_helps: bool = True, advice: str | None = None) -> None:
     """Stop and say why. A short failure note, not a draft. A rejected draft, if any, is
     saved in its own clearly labelled file; it is never the week's draft.
-    rerun_helps=False is for a cause a rerun cannot fix (project not found)."""
+    rerun_helps=False is for a cause a rerun cannot fix (project not found); advice
+    overrides the default line for any other cause (the kill switch)."""
     banner(f"GAVE UP, short failure note (not a draft). Nothing posted. "
            f"Run cost ≈ ${cost:.4f}")
-    advice = ("A rerun can try again." if rerun_helps else
-              "Check the project ID. A rerun won't help until it's corrected.")
+    advice = advice or ("A rerun can try again." if rerun_helps else
+                        "Check the project ID. A rerun won't help until it's corrected.")
     note = (f"# Failure note: Cortex could not finish ({which})\n\n"
             f"**Why:** {reason}\n\n"
             f"No recap draft was produced. {advice} "
@@ -252,8 +263,9 @@ def add_used_sources(text: str, calls: list[str]) -> str:
 
 
 def run(which: str = "happy") -> None:
-    client = OpenAI()
+    client = OpenAI(timeout=CALL_TIMEOUT_S, max_retries=CALL_RETRIES)
     bounds = Bounds()
+    started = time.monotonic()
     task = tools.get_task(which)
     if "error" in task:
         print(task)
@@ -274,13 +286,30 @@ def run(which: str = "happy") -> None:
     date_asked = bool(DATE_ASK.search(task["body"]))
 
     for step in range(1, MAX_ITERATIONS + 1):
+        if STOP_FILE.exists():
+            give_up(which, "halted by kill switch (00-build/STOP exists)", last_draft,
+                    bounds.cost, advice="Delete 00-build/STOP to resume; a rerun "
+                    "halts until then.")
+            return
+
         if bounds.over_cap():
             give_up(which, f"cost cap ${COST_CAP_USD} hit at ${bounds.cost:.4f}",
                     last_draft, bounds.cost)
             return
 
-        resp = client.chat.completions.create(
-            model=MODEL, messages=messages, tools=TOOL_SCHEMAS)
+        elapsed = time.monotonic() - started
+        if elapsed >= RUN_DEADLINE_S:
+            give_up(which, f"run deadline {RUN_DEADLINE_S:.0f}s hit at {elapsed:.0f}s",
+                    last_draft, bounds.cost)
+            return
+
+        try:
+            resp = client.chat.completions.create(
+                model=MODEL, messages=messages, tools=TOOL_SCHEMAS)
+        except APITimeoutError:
+            give_up(which, f"model call timed out ({CALL_TIMEOUT_S:.0f}s per call, "
+                    f"{CALL_RETRIES} retry)", last_draft, bounds.cost)
+            return
         bounds.add(resp.usage)
         msg = resp.choices[0].message
 
@@ -330,8 +359,13 @@ def run(which: str = "happy") -> None:
         else:
             banner("CRITIC, independent validation")
             # The norms come from code, so the rubric never depends on what Cortex pulled.
-            verdict = review(client, CRITIC_MODEL, proposed, "\n".join(source_log),
-                             norms=tools.get_norms()["norms"])
+            try:
+                verdict = review(client, CRITIC_MODEL, proposed, "\n".join(source_log),
+                                 norms=tools.get_norms()["norms"])
+            except APITimeoutError:
+                give_up(which, f"critic call timed out ({CALL_TIMEOUT_S:.0f}s per call, "
+                        f"{CALL_RETRIES} retry)", last_draft, bounds.cost)
+                return
             # Estimate critic spend too, at the critic model's own price.
             bounds.cost += (verdict["_usage"]["prompt"] * CRITIC_PRICE_IN
                             + verdict["_usage"]["completion"] * CRITIC_PRICE_OUT) / 1_000_000
