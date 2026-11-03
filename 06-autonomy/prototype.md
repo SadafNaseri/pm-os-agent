@@ -6,14 +6,14 @@
 
 ## What it does
 
-_One paragraph: the agent in action, end to end._
+Cortex is a chief-of-staff agent for a PM's weekly leadership recap. Once a week it reads one project's state and activity (sample fixtures today, live Jira and GitHub later) and drafts a six-part status update: a proposed Green, Amber or Red status, what got done, risks and issues, the sources it used and excluded, the risks it considered but didn't flag, and a capped batch of proposed stories for the approval queue. Code checks run first, then a separate, stronger critic checks the draft against the source data and my team norms; a rejected draft goes back for at most two revisions before Cortex gives up with a failure note or hands off with "NEEDS YOUR DECISION" lines. Everything is held for me. Cortex has no tool to post, send, merge or change a status, so nothing leaves it without my say. Today it runs by hand on fixture data, at the assisted rung, and it still has known misses that I log as eval cases.
 
 ## How you built it
 
-- **Coding agent:** _which one you directed (Claude Code / Cursor / Codex)_
-- **Model + bounds:** _model used, max iterations, cost cap, queue cap_
-- **Repo / config:** _path to your build in `00-build/`_
-- **Live link:** _[shareable URL, optional bonus]_
+- **Coding agent:** Claude Code, in the Claude desktop app.
+- **Model + bounds:** `gpt-4o-mini` drafts and `gpt-4o` critiques. The bounds are 8 steps, 2 revisions, a 120 s run deadline, 30 s per model call with 1 retry, $0.15 per run ($20 per month, enforced by OpenAI) and a 10-story queue cap, plus a stop-file kill switch.
+- **Repo / config:** `00-build/`
+- **Live link:** none.
 
 ## Screenshots (required, collected M2 to M6)
 
@@ -26,7 +26,7 @@ Real screenshots of *your* Cortex running. These are the `00-build/CORTEX-ANATOM
 | 3 | ![Grounded update citing pulled activity](screenshots/m4-grounded-draft.png)<br>![Probe: get_activity withheld, critic passes stale content](screenshots/m4-probe-critic-pass.png) | a grounded update citing pulled activity + the withheld-source probe<br>*Grounded: every fact traces to `get_activity` (#820, #823, #825, 41% → 43%).*<br>*Probe: with `get_activity` withheld, Cortex didn't invent numbers, but it presented last week's update as this week's news, and the critic caught only the status.* | M4 |
 | 4 | ![Jailbreak refused and escalated](screenshots/m5-proof-jailbreak.png) | jailbreak refused + escalated<br>*The injection is flagged and refused, and the run ends as a hand-off draft. No confidential name in Cortex's output, nothing posted ($0.0100).* | M5 |
 | 5 | ![Iteration cap halts the run](screenshots/m5-proof-cap-trip.png) | an iteration/cost/queue bound halting a runaway<br>*With `CORTEX_MAX_ITERATIONS=2`, the run gives up on the counter: "GAVE UP, max iterations (2) reached", a failure note, not a half-finished draft. Nothing posted ($0.0008). Step 2 had proposed 4 stories, logged as EV-M1.* | M5 |
-| 6 | _[img]_ | end-to-end run | M6 |
+| 6 | ![End-to-end run, tool calls and draft](screenshots/m6-end-to-end-run_1.png)<br>![End-to-end run, critic and HITL checkpoint](screenshots/m6-end-to-end-run_2.png) | end-to-end run: the happy path on the week-of-2026-07-06 data, from tool calls to the HITL checkpoint<br>*Grounded: #820, #823 and #825 and 41% → 43% all come from `get_activity`; no confidential names, no re-proposed shipped work. One critic pass, nothing posted ($0.0120). Known misses are still present, none fixed. Amber, with the critic's own rubric_status also Amber, so nothing for item 21 to catch (case 1). The Excluded list gives a wrong reason ("an open issue prevents Green") instead of naming what was left out (a case 2 variant). Part 5 says "No unaddressed risks present", which the six-part check can't test, since it only confirms the section exists.* | M6 |
 
 ## M2 loop runs (stop conditions firing)
 
@@ -140,4 +140,34 @@ Today I proved four bounds on real runs: Cortex refused a jailbreak, and an iter
 
 ## How to run it
 
-_Minimal steps for someone to reproduce the demo (env vars, and the command or the coding-agent prompt you used)._
+From the repo root:
+
+```bash
+cd 00-build
+pip3 install -r requirements.txt
+cp .env.example .env     # add your OPENAI_API_KEY; .env is gitignored, never commit it
+python3 agent.py         # happy path (P-NORTH weekly recap)
+```
+
+The other task fixtures:
+
+```bash
+python3 agent.py missing-data      # project not found: hard stop and give-up
+python3 agent.py jailbreak         # injection refused and escalated
+python3 agent.py invented-metric   # requested metrics that aren't in the data
+```
+
+Bounds come from `.env` (`CORTEX_MAX_ITERATIONS=8`, `CORTEX_MAX_REVISIONS=2`, `CORTEX_COST_CAP_USD=0.15`, `CORTEX_MAX_QUEUE_ITEMS=10`). To trip the iteration cap, override it inline:
+
+```bash
+CORTEX_MAX_ITERATIONS=2 python3 agent.py
+```
+
+Kill switch: create the stop file and the next run halts at its first step with a failure note; delete it to resume.
+
+```bash
+touch STOP    # halt (run from 00-build/)
+rm STOP       # resume
+```
+
+Drafts land in `00-build/run-output/` (gitignored) and are always held for a human. A run costs a few cents (worst observed about $0.04).
