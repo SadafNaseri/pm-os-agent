@@ -2,7 +2,7 @@
 
 > My final project for Product School's **Agentic Loops for PMs** certification. A chief-of-staff agent that turns raw inputs (project state, GitHub/Jira activity, roadmap, past updates) into finished PM work, a leadership status update and a proposed backlog for a human to clear, built loop-first, bounded, grown into a fleet, and shipped up the Trust Ladder.
 
-This is a **template repo**. Click **Use this template → Create a new repository**, name it `pm-os-agent` (or your own agent's name), and fill in one folder per module as you go.
+Built by one PdM across six modules. Cortex sits at the assisted rung, on fixture data; see [`production-and-autonomy.md`](06-autonomy/production-and-autonomy.md).
 
 ---
 
@@ -54,25 +54,25 @@ Stop and ask me at every decision."* If your assistant can't read files (plain C
 
 | # | Deliverable | Module | Status | File |
 |---|---|---|---|---|
-| 1 | **Working agent demo** (real run screenshots; link optional) | Built across labs | ☐ | `06-autonomy/prototype.md` |
-| 2 | **Loop Spec** | M2 | ☐ | `02-loop-design/loop-spec.md` |
-| 3 | **Orchestration Map** | M3 | ☐ | `03-orchestration/orchestration-map.md` |
-| 4 | **Insights: build process** | M6 | ☐ | `06-autonomy/build-insights.md` |
-| 5 | **Bounds, trust & autonomy strategy** | M6 | ☐ | `06-autonomy/production-and-autonomy.md` |
+| 1 | **Working agent demo** (real run screenshots; link optional) | Built across labs | ✅ | `06-autonomy/prototype.md` |
+| 2 | **Loop Spec** | M2 | ✅ (the cron, dedupe and run log are still unbuilt) | `02-loop-design/loop-spec.md` |
+| 3 | **Orchestration Map** | M3 | ✅ | `03-orchestration/orchestration-map.md` |
+| 4 | **Insights: build process** | M6 | ✅ | `06-autonomy/build-insights.md` |
+| 5 | **Bounds, trust & autonomy strategy** | M6 | ✅ | `06-autonomy/production-and-autonomy.md` |
 
 ## The agent in one sentence
 
-_What does your agent do, for whom, and where is the agent line, what does it decide vs. what stays human?_
+Cortex reads one project's state and activity each week and drafts a six-part status recap plus a capped batch of proposed backlog stories for me to review; pulling data, drafting, flagging and queueing stories are below the line, while posting or sending anything, committing a status, date or launch gate, and choosing what to escalate stay with me, enforced by Cortex having no post, merge or status-change tool.
 
 ## Build & demo
 
-- **How you built it:** _which coding agent (Claude Code / Cursor / Codex) you directed, start in `00-build/`_
-- **Demo link:** _[optional shareable URL]_
-- **Run screenshots:** _required, collected M2 to M6 in `06-autonomy/prototype.md`_
+- **How you built it:** Claude Code in the Claude desktop app, starting in `00-build/`. `gpt-4o-mini` drafts, an independent `gpt-4o` critic checks, and the bounds are enforced in code.
+- **Demo link:** none; real run screenshots are in `06-autonomy/prototype.md`.
+- **Run screenshots:** collected M2 to M6 in `06-autonomy/prototype.md`.
 
 ## Where it sits on the Trust Ladder
 
-_shadow · assisted · supervised · bounded-autonomous · autonomous, which rung today, and what eval evidence would let it climb the next one?_
+**Assisted**, on fixture data, run by hand, for one user. The gate to the next rung (bounded-autonomous, for below-the-line review only; supervised is skipped on purpose) is the full eval suite at safety 5/5 and quality ≥4/5 for 4 consecutive weekly runs, plus 8 consecutive live weekly runs with zero invariant violations, 0 drafts rejected and at most 1 substantive edit. **The gate isn't met today**: the eval harness, confidential-name scan, roadmap filter, Sev-1 hand-off, cron and live connector aren't built. See [`06-autonomy/production-and-autonomy.md`](06-autonomy/production-and-autonomy.md).
 
 ---
 
